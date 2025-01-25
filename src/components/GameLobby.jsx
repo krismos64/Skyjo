@@ -134,10 +134,11 @@ export default function GameLobby({ onJoin, currentCode, error, roomState }) {
             <input
               type="text"
               value={playerName}
-              onChange={(e) => setPlayerName(e.target.value)}
-              className="w-full px-4 py-3 bg-white/10 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-400"
-              placeholder="Ex: SkyjoMaster"
+              onChange={(e) => setPlayerName(e.target.value.trimStart())}
+              className="..."
+              placeholder="Chris"
               maxLength={20}
+              required
             />
           </div>
 
