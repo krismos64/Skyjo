@@ -4,100 +4,116 @@ import GameLobby from "./components/GameLobby";
 import GameBoard from "./components/GameBoard";
 import GameOver from "./components/GameOver";
 
-const socket = io(window.location.origin);
+const socket = io("http://localhost:3000", {
+  path: "/socket.io",
+  transports: ["websocket"],
+  autoConnect: false,
+  withCredentials: true,
+});
 
 export default function App() {
-  const [gameState, setGameState] = useState(null);
+  const [roomState, setRoomState] = useState(null);
   const [player, setPlayer] = useState(null);
-  const [gameId, setGameId] = useState(null);
-  const [gameCode, setGameCode] = useState(null);
+  const [roomCode, setRoomCode] = useState("");
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    socket.on("gameUpdate", (updatedGame) => {
-      setGameState(updatedGame);
+    // Gestion des événements serveur
+    socket.on("roomUpdate", (room) => {
+      setRoomState(room);
+      setRoomCode(room?.code || "");
     });
 
-    socket.on("gameStarted", (game) => {
-      setGameState(game);
+    socket.connect();
+
+    socket.on("gameStart", (room) => {
+      setRoomState(room);
     });
 
-    socket.on("gameEnded", (game) => {
-      setGameState(game);
+    socket.on("gameEnd", (room) => {
+      setRoomState(room);
     });
 
-    socket.on("error", (error) => {
-      alert(error.message);
+    socket.on("error", (err) => {
+      setError(err.message);
+      setTimeout(() => setError(""), 5000);
     });
 
     return () => {
-      socket.off("gameUpdate");
-      socket.off("gameStarted");
-      socket.off("gameEnded");
+      socket.off("roomUpdate");
+      socket.off("gameStart");
+      socket.off("gameEnd");
       socket.off("error");
     };
   }, []);
 
-  const joinGame = (playerName, playerPhoto, code, playerCount) => {
-    setGameCode(code);
+  const handleJoinRoom = (playerName, playerPhoto, code, maxPlayers) => {
     setPlayer({ name: playerName, photo: playerPhoto });
-    socket.emit("joinGame", {
-      gameId: code,
-      playerName,
-      playerPhoto,
-      playerCount,
+
+    if (code) {
+      socket.emit("joinRoom", {
+        roomCode: code.toUpperCase(),
+        playerName,
+        playerPhoto,
+      });
+    } else {
+      socket.emit("createRoom", {
+        playerName,
+        playerPhoto,
+        maxPlayers: Math.min(Math.max(maxPlayers, 2), 4),
+      });
+    }
+  };
+
+  const handleGameAction = (action, data = {}) => {
+    socket.emit(action, {
+      roomCode,
+      ...data,
     });
   };
 
-  const handleDrawCard = () => {
-    socket.emit("drawCard", { gameId: gameCode });
-  };
-
-  const renderGameState = () => {
-    if (!gameState) {
+  const renderContent = () => {
+    if (!roomState) {
       return (
-        <div>
-          <GameLobby onJoin={joinGame} />
-          {gameCode && (
-            <div className="fixed bottom-4 left-0 right-0 text-center">
-              <div className="inline-block bg-white/20 backdrop-blur-md text-white px-6 py-2 rounded-full">
-                Code de la partie :{" "}
-                <span className="font-bold text-yellow-400">{gameCode}</span>
-              </div>
-            </div>
-          )}
-        </div>
+        <GameLobby
+          onJoin={handleJoinRoom}
+          currentCode={roomCode}
+          error={error}
+        />
       );
     }
 
     return (
-      <div>
-        {gameCode && (
-          <div className="fixed top-4 left-0 right-0 text-center z-10">
-            <div className="inline-block bg-white/20 backdrop-blur-md text-white px-6 py-2 rounded-full">
-              Code de la partie :{" "}
-              <span className="font-bold text-yellow-400">{gameCode}</span>
-              {gameState.status === "waiting" && (
-                <span className="ml-4">
-                  {gameState.players.length}/{gameState.maxPlayers} joueurs
-                </span>
-              )}
-            </div>
+      <div className="relative min-h-screen">
+        {/* En-tête avec code de partie */}
+        <div className="fixed top-4 left-0 right-0 text-center z-50">
+          <div className="inline-block bg-black/30 backdrop-blur-md text-white px-6 py-2 rounded-full">
+            Code :{" "}
+            <span className="font-bold text-emerald-400">{roomCode}</span>
+            {roomState.status === "waiting" && (
+              <span className="ml-4">
+                {roomState.players.length}/{roomState.maxPlayers} joueurs
+              </span>
+            )}
           </div>
-        )}
-        {gameState.status === "finished" ? (
+        </div>
+
+        {roomState.status === "finished" ? (
           <GameOver
-            gameState={gameState}
+            roomState={roomState}
             playerId={socket.id}
-            onPlayAgain={() => joinGame(player.name, player.photo, gameCode)}
+            onPlayAgain={() =>
+              handleJoinRoom(player.name, player.photo, roomCode)
+            }
           />
         ) : (
           <GameBoard
-            gameState={gameState}
+            roomState={roomState}
             playerId={socket.id}
-            onRevealCard={(cardIndex) => {
-              socket.emit("revealCard", { gameId: gameCode, cardIndex });
-            }}
-            onDrawCard={handleDrawCard}
+            onRevealCard={(cardIndex) =>
+              handleGameAction("revealCard", { cardIndex })
+            }
+            onDrawCard={() => handleGameAction("drawCard")}
           />
         )}
       </div>
@@ -105,8 +121,15 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-indigo-900 to-purple-900">
-      {renderGameState()}
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 to-blue-900">
+      {renderContent()}
+
+      {/* Affichage des erreurs */}
+      {error && (
+        <div className="fixed bottom-4 right-4 bg-red-500/90 text-white px-6 py-3 rounded-lg shadow-lg animate-fade-in-up">
+          ⚠️ {error}
+        </div>
+      )}
     </div>
   );
 }

@@ -17,230 +17,152 @@ app.use(express.static(join(__dirname, "../dist")));
 
 const io = new Server(server, {
   cors: {
-    origin: "*",
+    origin: "http://localhost:5173",
     methods: ["GET", "POST"],
+    credentials: true,
   },
 });
 
-// État du jeu
-const games = new Map();
-const players = new Map();
+const gameRooms = new Map();
 
-// Routes
-app.get("/", (req, res) => {
-  res.sendFile(join(__dirname, "../dist/index.html"));
-});
+// Générer un code de partie unique
+const generateRoomCode = () => {
+  const characters = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "";
+  for (let i = 0; i < 6; i++) {
+    code += characters[Math.floor(Math.random() * characters.length)];
+  }
+  return code;
+};
 
-app.get("/api/health", (req, res) => {
-  res.json({ status: "ok" });
-});
-
-// Socket.IO logic
 io.on("connection", (socket) => {
-  console.log("Un joueur s'est connecté");
+  console.log("Nouvelle connexion:", socket.id);
 
-  socket.on("joinGame", ({ gameId, playerName, playerPhoto, playerCount }) => {
-    let game = games.get(gameId);
+  socket.on("createRoom", ({ playerName, playerPhoto, maxPlayers }) => {
+    const roomCode = generateRoomCode();
+    const newRoom = {
+      code: roomCode,
+      players: [],
+      maxPlayers: Math.min(Math.max(parseInt(maxPlayers), 2), 4),
+      status: "waiting",
+      deck: [],
+      discardPile: [],
+      currentTurn: 0,
+    };
+  
+    gameRooms.set(roomCode, newRoom);
+    joinRoom(socket, roomCode, playerName, playerPhoto); 
+  });
+    // Envoyer immédiatement le code au créateur
+    socket.emit("roomCreated", roomCode);
 
-    if (!game) {
-      // Validation du nombre de joueurs
-      const maxPlayers = Math.min(Math.max(Number(playerCount), 2), 4); // Forcer entre 2 et 4
-      game = createGame(gameId, maxPlayers);
-      games.set(gameId, game);
+    // Ajouter le joueur à la room
+    joinRoom(socket, roomCode, playerName, playerPhoto);
+  });
+
+  socket.on("joinRoom", ({ roomCode, playerName, playerPhoto }) => {
+    const formattedCode = roomCode.toUpperCase();
+    const room = gameRooms.get(formattedCode);
+
+    if (!room) {
+      socket.emit("error", { message: "Code de partie invalide" });
+      return;
     }
 
-    if (game.players.length >= game.maxPlayers) {
+    if (room.players.length >= room.maxPlayers) {
       socket.emit("error", { message: "La partie est complète" });
       return;
     }
 
-    const player = {
-      id: socket.id,
-      name: playerName,
-      photo: playerPhoto,
-      grid: [],
-      score: 0,
-    };
-
-    game.players.push(player);
-    players.set(socket.id, gameId);
-    socket.join(gameId);
-
-    // Démarrage quand le nombre exact est atteint
-    if (game.players.length === game.maxPlayers) {
-      startGame(game);
-    }
+    joinRoom(socket, formattedCode, playerName, playerPhoto);
   });
 
-  io.to(gameId).emit("gameUpdate", game);
-});
+  socket.on("revealCard", ({ roomCode, cardIndex }) => {
+    const room = gameRooms.get(roomCode);
+    if (!room || room.status !== "playing") return;
 
-socket.on("revealCard", ({ gameId, cardIndex }) => {
-  const game = games.get(gameId);
-  if (!game || game.status !== "playing") return;
+    const player = room.players.find((p) => p.id === socket.id);
+    if (!player || room.players[room.currentTurn] !== player) return;
 
-  const playerIndex = game.players.findIndex((p) => p.id === socket.id);
-  if (playerIndex === -1 || playerIndex !== game.currentTurn) return;
+    const card = player.grid[cardIndex];
+    if (!card || card.revealed) return;
 
-  const player = game.players[playerIndex];
-  const card = player.grid[cardIndex];
+    card.revealed = true;
+    player.score = calculateScore(player.grid);
 
-  if (!card || card.revealed) return;
+    // Passer au joueur suivant
+    room.currentTurn = (room.currentTurn + 1) % room.players.length;
 
-  // Révéler la carte
-  card.revealed = true;
-  player.score = calculateScore(player.grid);
+    checkGameStatus(room);
+    io.to(roomCode).emit("gameUpdate", room);
+  });
 
-  // Passer au joueur suivant
-  game.currentTurn = (game.currentTurn + 1) % game.players.length;
+  socket.on("disconnect", () => {
+    gameRooms.forEach((room, code) => {
+      room.players = room.players.filter((p) => p.id !== socket.id);
 
-  // Vérifier si la partie est terminée
-  if (isGameOver(game)) {
-    game.status = "finished";
-    io.to(gameId).emit("gameEnded", game);
-  } else {
-    io.to(gameId).emit("gameUpdate", game);
-  }
-});
-socket.on("replaceCard", ({ gameId, cardIndex }) => {
-  const game = games.get(gameId);
-  const player = game.players.find((p) => p.id === socket.id);
-
-  // Remplacer la carte dans la grille
-  player.grid[cardIndex] = {
-    value: player.drawnCard,
-    revealed: true,
-  };
-
-  // Passer au joueur suivant
-  game.currentTurn = (game.currentTurn + 1) % game.players.length;
-  io.to(gameId).emit("gameUpdate", game);
-});
-
-socket.on("drawCard", ({ gameId }) => {
-  const game = games.get(gameId);
-  if (!game || game.status !== "playing") return;
-
-  const playerIndex = game.players.findIndex((p) => p.id === socket.id);
-  if (playerIndex === -1 || playerIndex !== game.currentTurn) return;
-
-  // Piocher une carte de la défausse
-  const drawnCard = game.discardPile.pop();
-
-  // Ajouter une nouvelle carte à la défausse
-  if (game.deck.length > 0) {
-    game.discardPile.push(game.deck.pop());
-  }
-
-  // Mettre à jour le jeu du joueur
-  const player = game.players[playerIndex];
-  player.drawnCard = drawnCard;
-
-  // Passer au joueur suivant
-  game.currentTurn = (game.currentTurn + 1) % game.players.length;
-
-  io.to(gameId).emit("gameUpdate", game);
-});
-
-socket.on("disconnect", () => {
-  const gameId = players.get(socket.id);
-  if (gameId) {
-    const game = games.get(gameId);
-    if (game) {
-      game.players = game.players.filter((p) => p.id !== socket.id);
-      if (game.players.length === 0) {
-        games.delete(gameId);
+      if (room.players.length === 0) {
+        gameRooms.delete(code);
       } else {
-        // Si le joueur qui se déconnecte était en train de jouer
-        if (
-          game.status === "playing" &&
-          game.players[game.currentTurn].id === socket.id
-        ) {
-          game.currentTurn = game.currentTurn % game.players.length;
+        if (room.status === "playing") {
+          room.currentTurn %= room.players.length;
         }
-        io.to(gameId).emit("gameUpdate", game);
+        io.to(code).emit("gameUpdate", room);
       }
-    }
-    players.delete(socket.id);
-  }
+    });
+  });
 });
 
-function calculateScore(grid) {
-  return grid.reduce(
-    (total, card) => total + (card.revealed ? card.value : 0),
-    0
-  );
-}
-
-function isGameOver(game) {
-  return game.players.some((player) =>
-    player.grid.every((card) => card.revealed)
-  );
-}
-
-function createGame(gameId, playerCount = 2) {
-  return {
-    id: gameId,
-    players: [],
-    deck: createDeck(),
-    discardPile: [],
-    currentTurn: 0,
-    status: "waiting",
-    maxPlayers: Math.min(Math.max(playerCount, 2), 4), // Double validation
-  };
-}
-
-function createDeck() {
-  const deck = [];
-  const cardCounts = {
-    "-2": 5,
-    "-1": 10,
-    0: 15,
-    1: 10,
-    2: 10,
-    3: 10,
-    4: 10,
-    5: 10,
-    6: 10,
-    7: 10,
-    8: 10,
-    9: 10,
-    10: 10,
-    11: 10,
-    12: 10,
+function joinRoom(socket, roomCode, playerName, playerPhoto) {
+  const room = gameRooms.get(roomCode);
+  const player = {
+    id: socket.id,
+    name: playerName,
+    photo: playerPhoto,
+    grid: [],
+    score: 0,
+    ready: false,
   };
 
-  Object.entries(cardCounts).forEach(([value, count]) => {
-    for (let i = 0; i < count; i++) {
-      deck.push(parseInt(value));
-    }
-  });
+  room.players.push(player);
+  socket.join(roomCode);
 
-  return shuffle(deck);
-}
+  // Notifier tout le monde de la mise à jour
+  io.to(roomCode).emit("roomUpdate", room);
 
-function shuffle(array) {
-  const newArray = [...array];
-  for (let i = newArray.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
+  // Démarrer la partie si le nombre est atteint
+  if (room.players.length === room.maxPlayers) {
+    startGame(room);
   }
-  return newArray;
+  io.to(roomCode).emit("roomUpdate", room);
 }
 
-function startGame(game) {
-  game.deck = shuffleDeck(createDeck());
-  game.status = "playing";
-  game.currentTurn = Math.floor(Math.random() * game.players.length);
+function startGame(room) {
+  room.deck = shuffleDeck(createDeck());
+  room.status = "playing";
+  room.currentTurn = Math.floor(Math.random() * room.players.length);
 
-  game.players.forEach((player) => {
-    player.grid = game.deck.splice(0, 12).map((card) => ({
+  // Distribuer les cartes
+  room.players.forEach((player) => {
+    player.grid = room.deck.splice(0, 12).map((card) => ({
       ...card,
       revealed: false,
     }));
   });
-  game.discardPile = [game.deck.pop()];
-  io.to(game.id).emit("gameStarted", game);
+
+  room.discardPile = [room.deck.pop()];
+  io.to(room.code).emit("gameStart", room);
+}
+
+function checkGameStatus(room) {
+  const gameOver = room.players.some((player) =>
+    player.grid.every((card) => card.revealed)
+  );
+
+  if (gameOver) {
+    room.status = "finished";
+    io.to(room.code).emit("gameEnd", room);
+  }
 }
 
 const PORT = process.env.PORT || 3000;

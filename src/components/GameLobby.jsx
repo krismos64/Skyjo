@@ -1,59 +1,115 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { motion } from "framer-motion";
+import { io } from "socket.io-client";
 
-export default function GameLobby({ onJoin }) {
+const socket = io({
+  path: "/socket.io",
+  transports: ["websocket"],
+});
+
+export default function GameLobby({ onGameStart }) {
   const [playerName, setPlayerName] = useState("");
   const [playerPhoto, setPlayerPhoto] = useState("");
-  const [gameCode, setGameCode] = useState("");
+  const [roomCode, setRoomCode] = useState("");
   const [isCreating, setIsCreating] = useState(true);
-  const [playerCount, setPlayerCount] = useState(2);
+  const [maxPlayers, setMaxPlayers] = useState(2);
+  const [error, setError] = useState("");
+  const [createdCode, setCreatedCode] = useState("");
+
+  useEffect(() => {
+    socket.on("roomCreated", (newCode) => {
+      setCreatedCode(newCode);
+      setRoomCode(newCode);
+    });
+
+    socket.on("error", (err) => {
+      setError(err.message);
+      setTimeout(() => setError(""), 5000);
+    });
+
+    return () => {
+      socket.off("roomCreated");
+      socket.off("error");
+    };
+  }, []);
 
   const handlePhotoUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setPlayerPhoto(reader.result);
-      };
+      reader.onloadend = () => setPlayerPhoto(reader.result);
       reader.readAsDataURL(file);
     }
   };
+
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (playerName.trim()) {
-      if (isCreating) {
-        const newGameCode = Math.random()
-          .toString(36)
-          .substring(2, 8)
-          .toUpperCase();
-        onJoin(playerName, playerPhoto, newGameCode, playerCount);
-      } else {
-        onJoin(playerName, playerPhoto, gameCode.toUpperCase());
+    setError("");
+
+    if (!playerName.trim()) {
+      setError("Veuillez entrer un nom de joueur");
+      return;
+    }
+
+    if (isCreating) {
+      socket.emit("createRoom", {
+        playerName: playerName.trim(),
+        playerPhoto,
+        maxPlayers,
+      });
+    } else {
+      if (!roomCode || roomCode.length !== 6) {
+        setError("Code de partie invalide (6 caractères requis)");
+        return;
       }
+      socket.emit("joinRoom", {
+        roomCode: roomCode.toUpperCase(),
+        playerName: playerName.trim(),
+        playerPhoto,
+      });
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4">
-      <div className="bg-white/10 backdrop-blur-md rounded-xl p-8 w-full max-w-md">
-        <h1 className="text-4xl font-bold text-center mb-8 text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-pink-500">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 to-blue-900 flex items-center justify-center p-4">
+      <motion.div
+        initial={{ scale: 0.95, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 w-full max-w-md shadow-xl"
+      >
+        <h1 className="text-4xl font-bold text-center mb-8 bg-gradient-to-r from-blue-400 to-green-400 bg-clip-text text-transparent">
           Skyjo Online
         </h1>
 
-        <div className="flex justify-center space-x-4 mb-6">
+        {error && (
+          <motion.div
+            initial={{ y: -20, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            className="bg-red-500/20 text-red-300 p-3 rounded-lg mb-6 border border-red-500/30"
+          >
+            ⚠️ {error}
+          </motion.div>
+        )}
+
+        <div className="flex gap-4 mb-6">
           <button
+            type="button"
             onClick={() => setIsCreating(true)}
-            className={`px-4 py-2 rounded-full ${
-              isCreating ? "bg-yellow-400 text-black" : "bg-white/20 text-white"
+            className={`flex-1 py-3 rounded-xl transition-all ${
+              isCreating
+                ? "bg-blue-500 text-white shadow-lg"
+                : "bg-white/10 text-white/70 hover:bg-white/20"
             }`}
           >
-            Créer une partie
+            Nouvelle Partie
           </button>
           <button
+            type="button"
             onClick={() => setIsCreating(false)}
-            className={`px-4 py-2 rounded-full ${
+            className={`flex-1 py-3 rounded-xl transition-all ${
               !isCreating
-                ? "bg-yellow-400 text-black"
-                : "bg-white/20 text-white"
+                ? "bg-blue-500 text-white shadow-lg"
+                : "bg-white/10 text-white/70 hover:bg-white/20"
             }`}
           >
             Rejoindre
@@ -62,34 +118,37 @@ export default function GameLobby({ onJoin }) {
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label className="block text-white mb-2">Votre nom</label>
+            <label className="block text-white/80 mb-2">Votre pseudo</label>
             <input
               type="text"
               value={playerName}
               onChange={(e) => setPlayerName(e.target.value)}
-              className="w-full px-4 py-2 rounded-lg bg-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-yellow-400"
-              placeholder="Entrez votre nom"
-              required
+              className="w-full px-4 py-3 bg-white/10 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-400"
+              placeholder="Ex: SkyjoMaster"
+              maxLength={20}
             />
           </div>
 
           {isCreating && (
-            <div>
-              <label className="block text-white mb-2">Nombre de joueurs</label>
-              <div className="flex justify-between space-x-4">
+            <div className="bg-white/5 p-4 rounded-xl">
+              <label className="block text-white/80 mb-3">
+                Nombre de joueurs
+              </label>
+              <div className="flex gap-3">
                 {[2, 3, 4].map((count) => (
-                  <button
+                  <motion.button
                     key={count}
                     type="button"
-                    onClick={() => setPlayerCount(count)}
+                    onClick={() => setMaxPlayers(count)}
+                    whileHover={{ scale: 1.05 }}
                     className={`flex-1 py-2 rounded-lg ${
-                      playerCount === count
-                        ? "bg-yellow-400 text-black"
-                        : "bg-white/20 text-white"
-                    } transition-all duration-200`}
+                      maxPlayers === count
+                        ? "bg-blue-500 text-white"
+                        : "bg-white/10 text-white/60 hover:bg-white/20"
+                    }`}
                   >
-                    {count} joueurs
-                  </button>
+                    {count}
+                  </motion.button>
                 ))}
               </div>
             </div>
@@ -97,55 +156,74 @@ export default function GameLobby({ onJoin }) {
 
           {!isCreating && (
             <div>
-              <label className="block text-white mb-2">Code de la partie</label>
+              <label className="block text-white/80 mb-2">
+                Code de la partie
+              </label>
               <input
                 type="text"
-                value={gameCode}
-                onChange={(e) => setGameCode(e.target.value.toUpperCase())}
-                className="w-full px-4 py-2 rounded-lg bg-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-yellow-400"
-                placeholder="Ex: ABC123"
-                required
+                value={roomCode}
+                onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
+                className="w-full px-4 py-3 bg-white/10 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-400 uppercase"
+                placeholder="ABCDEF"
                 maxLength={6}
               />
             </div>
           )}
 
           <div>
-            <label className="block text-white mb-2">Photo de profil</label>
-            <div className="flex flex-col items-center space-y-4">
-              {playerPhoto && (
-                <div className="w-32 h-32 rounded-full overflow-hidden border-4 border-white/20">
+            <label className="block text-white/80 mb-3">Photo de profil</label>
+            <div className="flex items-center gap-4">
+              <div className="relative w-16 h-16 rounded-full overflow-hidden border-2 border-white/20">
+                {playerPhoto ? (
                   <img
                     src={playerPhoto}
-                    alt="Profile"
+                    alt="Profil"
                     className="w-full h-full object-cover"
                   />
-                </div>
-              )}
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handlePhotoUpload}
-                className="hidden"
-                id="photo-upload"
-              />
-              <label
-                htmlFor="photo-upload"
-                className="cursor-pointer bg-gradient-to-r from-blue-400 to-indigo-400 text-white px-6 py-2 rounded-full hover:from-blue-500 hover:to-indigo-500 transition-all duration-200"
-              >
-                Choisir une photo
-              </label>
+                ) : (
+                  <div className="w-full h-full bg-white/10 flex items-center justify-center">
+                    <span className="text-white/50">👤</span>
+                  </div>
+                )}
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handlePhotoUpload}
+                  className="absolute inset-0 opacity-0 cursor-pointer"
+                />
+              </div>
+              <span className="text-white/60 text-sm">
+                {playerPhoto ? "Photo sélectionnée" : "Cliquez pour ajouter"}
+              </span>
             </div>
           </div>
 
-          <button
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
             type="submit"
-            className="w-full bg-gradient-to-r from-emerald-400 to-cyan-400 text-white py-3 rounded-full font-bold text-lg hover:from-emerald-500 hover:to-cyan-500 transition-all duration-200"
+            className="w-full bg-blue-500 hover:bg-blue-600 text-white py-4 rounded-xl font-bold text-lg transition-all"
           >
-            {isCreating ? "Créer la partie" : "Rejoindre la partie"}
-          </button>
+            {isCreating ? "🚀 Créer la partie" : "🎮 Rejoindre maintenant"}
+          </motion.button>
         </form>
-      </div>
+
+        {roomCode && (
+  <motion.div
+    initial={{ opacity: 0 }}
+    animate={{ opacity: 1 }}
+    className="mt-6 text-center"
+  >
+    <div className="text-white/80 mb-2">Code de votre table :</div>
+    <div className="text-3xl font-mono text-emerald-400 bg-black/30 p-4 rounded-lg">
+      {roomCode}
+    </div>
+    <p className="text-sm mt-4 text-white/60">
+      En attente de {roomState?.maxPlayers - 1} joueur(s)...
+    </p>
+  </motion.div>
+)}
+
     </div>
   );
 }
