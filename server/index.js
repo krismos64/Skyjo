@@ -40,12 +40,14 @@ io.on("connection", (socket) => {
 
   socket.on("joinGame", ({ gameId, playerName, playerPhoto, playerCount }) => {
     let game = games.get(gameId);
-
+  
     if (!game) {
-      game = createGame(gameId, playerCount);
+      // Validation du nombre de joueurs
+      const maxPlayers = Math.min(Math.max(Number(playerCount), 2), 4); // Forcer entre 2 et 4
+      game = createGame(gameId, maxPlayers);
       games.set(gameId, game);
     }
-
+  
     if (game.players.length >= game.maxPlayers) {
       socket.emit("error", { message: "La partie est complète" });
       return;
@@ -63,10 +65,11 @@ io.on("connection", (socket) => {
     players.set(socket.id, gameId);
     socket.join(gameId);
 
-    // Démarrer la partie quand le nombre requis de joueurs est atteint
-    if (game.players.length === game.maxPlayers) {
-      startGame(game);
-    }
+  // Démarrage quand le nombre exact est atteint
+  if (game.players.length === game.maxPlayers) {
+    startGame(game);
+  }
+});
 
     io.to(gameId).emit("gameUpdate", game);
   });
@@ -183,7 +186,7 @@ function createGame(gameId, playerCount = 2) {
     discardPile: [],
     currentTurn: 0,
     status: "waiting",
-    maxPlayers: playerCount || 2,
+    maxPlayers: Math.min(Math.max(playerCount, 2), 4), // Double validation
   };
 }
 

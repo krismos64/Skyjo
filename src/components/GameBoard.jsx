@@ -23,22 +23,16 @@ export default function GameBoard({
       case 4:
         return "grid-cols-2 md:grid-cols-2";
       default:
-        return "grid-cols-2";
+        return "grid-cols-2"; // Ne devrait jamais arriver
     }
   };
 
-  // Détermine la taille des cartes en fonction du nombre de joueurs
   const getCardSize = () => {
-    switch (gameState.maxPlayers) {
-      case 2:
-        return "h-[calc(50vh-4rem)]";
-      case 3:
-        return "h-[calc(50vh-4rem)]";
-      case 4:
-        return "h-[calc(40vh-2rem)]";
-      default:
-        return "h-[calc(50vh-4rem)]";
-    }
+    const baseSize =
+      gameState.maxPlayers === 4
+        ? "h-[calc(40vh-2rem)]"
+        : "h-[calc(50vh-4rem)]";
+    return `${baseSize} max-h-96`;
   };
 
   return (

@@ -17,7 +17,6 @@ export default function GameLobby({ onJoin }) {
       reader.readAsDataURL(file);
     }
   };
-
   const handleSubmit = (e) => {
     e.preventDefault();
     if (playerName.trim()) {
