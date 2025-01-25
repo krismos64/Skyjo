@@ -12,16 +12,25 @@ const __dirname = dirname(__filename);
 const app = express();
 const server = createServer(app);
 
-app.use(cors());
+app.use(
+  cors({
+    origin: ["https://skyjo-kris.netlify.app", "http://localhost:5173"],
+    methods: ["GET", "POST"],
+    allowedHeaders: ["Content-Type"],
+    credentials: true,
+  })
+);
+
 app.use(express.static(join(__dirname, "../dist")));
 
 const io = new Server(server, {
   cors: {
-    origin: [
-      "https://skyjo-kris.netlify.app", // frontend
-      "http://localhost:5173", // Dev local
-    ],
+    origin: ["https://skyjo-kris.netlify.app", "http://localhost:5173"],
     methods: ["GET", "POST"],
+    credentials: true,
+  },
+  connectionStateRecovery: {
+    maxDisconnectionDuration: 30000,
   },
 });
 
@@ -36,39 +45,45 @@ const generateRoomCode = () => {
 };
 
 io.on("connection", (socket) => {
-  console.log("Nouvelle connexion:", socket.id);
+  console.log(`✅ Client connecté: ${socket.id}`);
 
   socket.on("createRoom", ({ playerName, playerPhoto, maxPlayers }) => {
-    const roomCode = generateRoomCode();
-    const newRoom = {
-      code: roomCode,
-      players: [],
-      maxPlayers: Math.min(Math.max(parseInt(maxPlayers), 2), 4),
-      status: "waiting",
-      deck: [],
-      discardPile: [],
-      currentTurn: 0,
-    };
+    try {
+      const roomCode = generateRoomCode();
+      const newRoom = {
+        code: roomCode,
+        players: [],
+        maxPlayers: Math.min(Math.max(Number(maxPlayers), 2), 4),
+        status: "waiting",
+        deck: [],
+        discardPile: [],
+        currentTurn: 0,
+      };
 
-    gameRooms.set(roomCode, newRoom);
-    joinRoom(socket, roomCode, playerName, playerPhoto); // Créateur ajouté ici
+      gameRooms.set(roomCode, newRoom);
+      joinRoom(socket, roomCode, playerName, playerPhoto);
+    } catch (error) {
+      socket.emit("error", { message: "Erreur de création de partie" });
+    }
   });
 
   socket.on("joinRoom", ({ roomCode, playerName, playerPhoto }) => {
-    const formattedCode = roomCode.toUpperCase().trim();
-    const room = gameRooms.get(formattedCode);
+    try {
+      const formattedCode = roomCode.toUpperCase().trim();
+      const room = gameRooms.get(formattedCode);
 
-    if (!room) {
-      socket.emit("error", { message: "Code de partie invalide" });
-      return;
+      if (!room) {
+        return socket.emit("error", { message: "Code de partie invalide" });
+      }
+
+      if (room.players.length >= room.maxPlayers) {
+        return socket.emit("error", { message: "La partie est complète" });
+      }
+
+      joinRoom(socket, formattedCode, playerName, playerPhoto);
+    } catch (error) {
+      socket.emit("error", { message: "Erreur de connexion à la partie" });
     }
-
-    if (room.players.length >= room.maxPlayers) {
-      socket.emit("error", { message: "La partie est complète" });
-      return;
-    }
-
-    joinRoom(socket, formattedCode, playerName, playerPhoto);
   });
 
   socket.on("revealCard", ({ roomCode, cardIndex }) => {
@@ -76,24 +91,27 @@ io.on("connection", (socket) => {
     if (!room || room.status !== "playing") return;
 
     const player = room.players.find((p) => p.id === socket.id);
-    if (!player || room.players[room.currentTurn] !== player) return;
+    if (!player || room.players[room.currentTurn].id !== socket.id) return;
 
     const card = player.grid[cardIndex];
-    if (!card || card.revealed) return;
-
-    card.revealed = true;
-    player.score = calculateScore(player.grid);
-    room.currentTurn = (room.currentTurn + 1) % room.players.length;
-
-    checkGameStatus(room);
-    io.to(roomCode).emit("gameUpdate", room);
+    if (!card?.revealed) {
+      card.revealed = true;
+      player.score = calculateScore(player.grid);
+      room.currentTurn = (room.currentTurn + 1) % room.players.length;
+      checkGameStatus(room);
+      io.to(roomCode).emit("gameUpdate", room);
+    }
   });
 
   socket.on("disconnect", () => {
+    console.log(`❌ Déconnexion: ${socket.id}`);
     gameRooms.forEach((room, code) => {
       room.players = room.players.filter((p) => p.id !== socket.id);
-      if (room.players.length === 0) gameRooms.delete(code);
-      else io.to(code).emit("gameUpdate", room);
+      if (room.players.length === 0) {
+        gameRooms.delete(code);
+      } else {
+        io.to(code).emit("gameUpdate", room);
+      }
     });
   });
 });
@@ -104,7 +122,7 @@ function joinRoom(socket, roomCode, playerName, playerPhoto) {
 
   const player = {
     id: socket.id,
-    name: playerName,
+    name: playerName.trim(),
     photo: playerPhoto,
     grid: [],
     score: 0,
@@ -137,9 +155,8 @@ function startGame(room) {
 }
 
 function checkGameStatus(room) {
-  const gameOver = room.players.some((player) =>
-    player.grid.every((card) => card.revealed)
-  );
+  const gameOver = room.players.some((p) => p.grid.every((c) => c.revealed));
+
   if (gameOver) {
     room.status = "finished";
     io.to(room.code).emit("gameEnd", room);
@@ -148,5 +165,5 @@ function checkGameStatus(room) {
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`✅ Serveur prêt sur le port ${PORT}`);
+  console.log(`🚀 Serveur Socket.io actif sur le port ${PORT}`);
 });
