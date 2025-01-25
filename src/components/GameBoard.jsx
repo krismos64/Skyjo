@@ -1,26 +1,83 @@
-import React from 'react';
-import PlayerGrid from './PlayerGrid';
-import PlayerInfo from './PlayerInfo';
+import React from "react";
+import PlayerGrid from "./PlayerGrid";
+import PlayerInfo from "./PlayerInfo";
+import DiscardPile from "./DiscardPile";
 
-export default function GameBoard({ gameState, playerId, onRevealCard }) {
-  const currentPlayer = gameState.players.find(p => p.id === playerId);
-  const isCurrentTurn = gameState.players[gameState.currentTurn].id === playerId;
+export default function GameBoard({
+  gameState,
+  playerId,
+  onRevealCard,
+  onDrawCard,
+}) {
+  const currentPlayer = gameState.players.find((p) => p.id === playerId);
+  const isCurrentTurn =
+    gameState.players[gameState.currentTurn].id === playerId;
+
+  // Détermine le nombre de colonnes en fonction du nombre de joueurs
+  const getGridColumns = () => {
+    switch (gameState.maxPlayers) {
+      case 2:
+        return "grid-cols-2";
+      case 3:
+        return "grid-cols-3";
+      case 4:
+        return "grid-cols-2 md:grid-cols-2";
+      default:
+        return "grid-cols-2";
+    }
+  };
+
+  // Détermine la taille des cartes en fonction du nombre de joueurs
+  const getCardSize = () => {
+    switch (gameState.maxPlayers) {
+      case 2:
+        return "h-[calc(50vh-4rem)]";
+      case 3:
+        return "h-[calc(50vh-4rem)]";
+      case 4:
+        return "h-[calc(40vh-2rem)]";
+      default:
+        return "h-[calc(50vh-4rem)]";
+    }
+  };
 
   return (
-    <div className="min-h-screen p-4">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div className="min-h-screen p-4 pt-16">
+      {/* Plateau central avec la défausse */}
+      <div className="flex justify-center items-center mb-4">
+        <DiscardPile
+          topCard={gameState.discardPile[gameState.discardPile.length - 1]}
+          onDraw={() => isCurrentTurn && onDrawCard()}
+          isCurrentTurn={isCurrentTurn}
+        />
+      </div>
+
+      {/* Grille des joueurs */}
+      <div className={`grid ${getGridColumns()} gap-4 ${getCardSize()}`}>
         {gameState.players.map((player) => (
-          <div key={player.id} className={`
+          <div
+            key={player.id}
+            className={`
             p-4 rounded-xl 
-            ${player.id === playerId ? 'bg-white/20' : 'bg-white/10'} 
+            ${player.id === playerId ? "bg-white/20" : "bg-white/10"} 
             backdrop-blur-md
-            ${isCurrentTurn && player.id === playerId ? 'ring-2 ring-yellow-400' : ''}
-          `}>
-            <PlayerInfo player={player} isCurrentTurn={gameState.players[gameState.currentTurn].id === player.id} />
-            <PlayerGrid 
+            ${
+              isCurrentTurn && player.id === playerId
+                ? "ring-2 ring-yellow-400"
+                : ""
+            }
+          `}
+          >
+            <PlayerInfo
+              player={player}
+              isCurrentTurn={
+                gameState.players[gameState.currentTurn].id === player.id
+              }
+            />
+            <PlayerGrid
               grid={player.grid}
               canPlay={isCurrentTurn && player.id === playerId}
-              onCardClick={onRevealCard}
+              onCardClick={(index) => onRevealCard(index)}
             />
           </div>
         ))}

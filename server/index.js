@@ -1,9 +1,9 @@
-import express from 'express';
-import { createServer } from 'http';
-import { Server } from 'socket.io';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
-import cors from 'cors';
+import express from "express";
+import { createServer } from "http";
+import { Server } from "socket.io";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
+import cors from "cors";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -12,13 +12,13 @@ const app = express();
 const server = createServer(app);
 
 app.use(cors());
-app.use(express.static(join(__dirname, '../dist')));
+app.use(express.static(join(__dirname, "../dist")));
 
 const io = new Server(server, {
   cors: {
     origin: "*",
-    methods: ["GET", "POST"]
-  }
+    methods: ["GET", "POST"],
+  },
 });
 
 // État du jeu
@@ -26,28 +26,28 @@ const games = new Map();
 const players = new Map();
 
 // Routes
-app.get('/', (req, res) => {
-  res.sendFile(join(__dirname, '../dist/index.html'));
+app.get("/", (req, res) => {
+  res.sendFile(join(__dirname, "../dist/index.html"));
 });
 
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok' });
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok" });
 });
 
 // Socket.IO logic
-io.on('connection', (socket) => {
-  console.log('Un joueur s\'est connecté');
+io.on("connection", (socket) => {
+  console.log("Un joueur s'est connecté");
 
-  socket.on('joinGame', ({ gameId, playerName, playerPhoto }) => {
+  socket.on("joinGame", ({ gameId, playerName, playerPhoto, playerCount }) => {
     let game = games.get(gameId);
-    
+
     if (!game) {
-      game = createGame(gameId);
+      game = createGame(gameId, playerCount);
       games.set(gameId, game);
     }
 
     if (game.players.length >= game.maxPlayers) {
-      socket.emit('error', { message: 'La partie est complète' });
+      socket.emit("error", { message: "La partie est complète" });
       return;
     }
 
@@ -56,56 +56,105 @@ io.on('connection', (socket) => {
       name: playerName,
       photo: playerPhoto,
       grid: [],
-      score: 0
+      score: 0,
     };
 
     game.players.push(player);
     players.set(socket.id, gameId);
     socket.join(gameId);
 
+    // Démarrer la partie quand le nombre requis de joueurs est atteint
     if (game.players.length === game.maxPlayers) {
       startGame(game);
     }
 
-    io.to(gameId).emit('gameUpdate', game);
+    io.to(gameId).emit("gameUpdate", game);
   });
 
-  socket.on('revealCard', ({ gameId, cardIndex }) => {
+  socket.on("revealCard", ({ gameId, cardIndex }) => {
     const game = games.get(gameId);
-    if (!game) return;
+    if (!game || game.status !== "playing") return;
 
-    const playerIndex = game.players.findIndex(p => p.id === socket.id);
+    const playerIndex = game.players.findIndex((p) => p.id === socket.id);
     if (playerIndex === -1 || playerIndex !== game.currentTurn) return;
 
     const player = game.players[playerIndex];
     const card = player.grid[cardIndex];
-    
+
     if (!card || card.revealed) return;
 
+    // Révéler la carte
     card.revealed = true;
     player.score = calculateScore(player.grid);
 
-    // Passe au joueur suivant
+    // Passer au joueur suivant
     game.currentTurn = (game.currentTurn + 1) % game.players.length;
 
-    // Vérifie si la partie est terminée
-    if (isGameOver(player.grid)) {
-      game.status = 'finished';
+    // Vérifier si la partie est terminée
+    if (isGameOver(game)) {
+      game.status = "finished";
+      io.to(gameId).emit("gameEnded", game);
+    } else {
+      io.to(gameId).emit("gameUpdate", game);
     }
+  });
+  socket.on("replaceCard", ({ gameId, cardIndex }) => {
+    const game = games.get(gameId);
+    const player = game.players.find((p) => p.id === socket.id);
 
-    io.to(gameId).emit('gameUpdate', game);
+    // Remplacer la carte dans la grille
+    player.grid[cardIndex] = {
+      value: player.drawnCard,
+      revealed: true,
+    };
+
+    // Passer au joueur suivant
+    game.currentTurn = (game.currentTurn + 1) % game.players.length;
+    io.to(gameId).emit("gameUpdate", game);
   });
 
-  socket.on('disconnect', () => {
+  socket.on("drawCard", ({ gameId }) => {
+    const game = games.get(gameId);
+    if (!game || game.status !== "playing") return;
+
+    const playerIndex = game.players.findIndex((p) => p.id === socket.id);
+    if (playerIndex === -1 || playerIndex !== game.currentTurn) return;
+
+    // Piocher une carte de la défausse
+    const drawnCard = game.discardPile.pop();
+
+    // Ajouter une nouvelle carte à la défausse
+    if (game.deck.length > 0) {
+      game.discardPile.push(game.deck.pop());
+    }
+
+    // Mettre à jour le jeu du joueur
+    const player = game.players[playerIndex];
+    player.drawnCard = drawnCard;
+
+    // Passer au joueur suivant
+    game.currentTurn = (game.currentTurn + 1) % game.players.length;
+
+    io.to(gameId).emit("gameUpdate", game);
+  });
+
+  socket.on("disconnect", () => {
     const gameId = players.get(socket.id);
     if (gameId) {
       const game = games.get(gameId);
       if (game) {
-        game.players = game.players.filter(p => p.id !== socket.id);
+        game.players = game.players.filter((p) => p.id !== socket.id);
         if (game.players.length === 0) {
           games.delete(gameId);
         } else {
-          io.to(gameId).emit('gameUpdate', game);
+          // Si le joueur qui se déconnecte était en train de jouer
+          if (
+            game.status === "playing" &&
+            game.players[game.currentTurn].id === socket.id
+          ) {
+            game.currentTurn = game.currentTurn % game.players.length;
+          }
+          io.to(gameId).emit("gameUpdate", game);
         }
       }
       players.delete(socket.id);
@@ -114,34 +163,48 @@ io.on('connection', (socket) => {
 });
 
 function calculateScore(grid) {
-  return grid.reduce((total, card) => total + (card.revealed ? card.value : 0), 0);
+  return grid.reduce(
+    (total, card) => total + (card.revealed ? card.value : 0),
+    0
+  );
 }
 
-function isGameOver(grid) {
-  return grid.every(card => card.revealed);
+function isGameOver(game) {
+  return game.players.some((player) =>
+    player.grid.every((card) => card.revealed)
+  );
 }
 
-// Game logic functions
-function createGame(gameId) {
+function createGame(gameId, playerCount = 2) {
   return {
     id: gameId,
     players: [],
     deck: createDeck(),
     discardPile: [],
     currentTurn: 0,
-    status: 'waiting',
-    maxPlayers: 4
+    status: "waiting",
+    maxPlayers: playerCount || 2,
   };
 }
 
 function createDeck() {
   const deck = [];
   const cardCounts = {
-    '-2': 5, '-1': 10, '0': 15,
-    '1': 10, '2': 10, '3': 10,
-    '4': 10, '5': 10, '6': 10,
-    '7': 10, '8': 10, '9': 10,
-    '10': 10, '11': 10, '12': 10
+    "-2": 5,
+    "-1": 10,
+    0: 15,
+    1: 10,
+    2: 10,
+    3: 10,
+    4: 10,
+    5: 10,
+    6: 10,
+    7: 10,
+    8: 10,
+    9: 10,
+    10: 10,
+    11: 10,
+    12: 10,
   };
 
   Object.entries(cardCounts).forEach(([value, count]) => {
@@ -163,15 +226,16 @@ function shuffle(array) {
 }
 
 function startGame(game) {
-  game.status = 'playing';
-  game.players.forEach(player => {
-    player.grid = game.deck.splice(0, 12).map(value => ({
+  game.status = "playing";
+  game.currentTurn = 0;
+  game.players.forEach((player) => {
+    player.grid = game.deck.splice(0, 12).map((value) => ({
       value,
-      revealed: false
+      revealed: false,
     }));
   });
   game.discardPile = [game.deck.pop()];
-  io.to(game.id).emit('gameStarted', game);
+  io.to(game.id).emit("gameStarted", game);
 }
 
 const PORT = process.env.PORT || 3000;
