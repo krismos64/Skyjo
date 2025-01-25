@@ -49,10 +49,9 @@ io.on("connection", (socket) => {
       discardPile: [],
       currentTurn: 0,
     };
-  
+
     gameRooms.set(roomCode, newRoom);
-    joinRoom(socket, roomCode, playerName, playerPhoto); 
-  });
+
     // Envoyer immédiatement le code au créateur
     socket.emit("roomCreated", roomCode);
 

@@ -209,21 +209,21 @@ export default function GameLobby({ onGameStart }) {
         </form>
 
         {roomCode && (
-  <motion.div
-    initial={{ opacity: 0 }}
-    animate={{ opacity: 1 }}
-    className="mt-6 text-center"
-  >
-    <div className="text-white/80 mb-2">Code de votre table :</div>
-    <div className="text-3xl font-mono text-emerald-400 bg-black/30 p-4 rounded-lg">
-      {roomCode}
-    </div>
-    <p className="text-sm mt-4 text-white/60">
-      En attente de {roomState?.maxPlayers - 1} joueur(s)...
-    </p>
-  </motion.div>
-)}
-
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="mt-6 text-center"
+          >
+            <div className="text-white/80 mb-2">Code de votre table :</div>
+            <div className="text-3xl font-mono text-emerald-400 bg-black/30 p-4 rounded-lg">
+              {roomCode}
+            </div>
+            <p className="text-sm mt-4 text-white/60">
+              En attente de {roomState?.maxPlayers - 1} joueur(s)...
+            </p>
+          </motion.div>
+        )}
+      </motion.div>
     </div>
   );
 }
