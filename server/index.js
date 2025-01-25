@@ -17,9 +17,11 @@ app.use(express.static(join(__dirname, "../dist")));
 
 const io = new Server(server, {
   cors: {
-    origin: "https://skyjo-kris.netlify.app/",
+    origin: [
+      "https://skyjo-kris.netlify.app", // frontend
+      "http://localhost:5173", // Dev local
+    ],
     methods: ["GET", "POST"],
-    credentials: true,
   },
 });
 
@@ -144,7 +146,7 @@ function checkGameStatus(room) {
   }
 }
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`✅ Serveur démarré sur http://localhost:${PORT}`);
+const PORT = process.env.PORT || 10000;
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`✅ Serveur prêt sur le port ${PORT}`);
 });
