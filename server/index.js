@@ -17,7 +17,7 @@ app.use(express.static(join(__dirname, "../dist")));
 
 const io = new Server(server, {
   cors: {
-    origin: "http://localhost:5173",
+    origin: "https://skyjo-kris.netlify.app/",
     methods: ["GET", "POST"],
     credentials: true,
   },
