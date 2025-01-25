@@ -12,21 +12,32 @@ const __dirname = dirname(__filename);
 const app = express();
 const server = createServer(app);
 
+// Configuration CORS améliorée
 app.use(
   cors({
     origin: ["https://skyjo-kris.netlify.app", "http://localhost:5173"],
     methods: ["GET", "POST"],
-    allowedHeaders: ["Content-Type"],
+    allowedHeaders: ["socket.io", "Content-Type"],
     credentials: true,
   })
 );
 
 app.use(express.static(join(__dirname, "../dist")));
 
+// Endpoint de vérification de santé
+app.get("/health", (req, res) => {
+  res.status(200).json({
+    status: "OK",
+    ws: `${io.engine.clientsCount} clients connectés`,
+    rooms: gameRooms.size,
+  });
+});
+
 const io = new Server(server, {
   cors: {
     origin: ["https://skyjo-kris.netlify.app", "http://localhost:5173"],
     methods: ["GET", "POST"],
+    allowedHeaders: ["socket.io"],
     credentials: true,
   },
   connectionStateRecovery: {
@@ -45,7 +56,7 @@ const generateRoomCode = () => {
 };
 
 io.on("connection", (socket) => {
-  console.log(`✅ Client connecté: ${socket.id}`);
+  console.log(`🔌 Nouvelle connexion: ${socket.id}`);
 
   socket.on("createRoom", ({ playerName, playerPhoto, maxPlayers }) => {
     try {
@@ -62,6 +73,7 @@ io.on("connection", (socket) => {
 
       gameRooms.set(roomCode, newRoom);
       joinRoom(socket, roomCode, playerName, playerPhoto);
+      console.log(`🎮 Nouvelle partie créée: ${roomCode}`);
     } catch (error) {
       socket.emit("error", { message: "Erreur de création de partie" });
     }
@@ -73,16 +85,17 @@ io.on("connection", (socket) => {
       const room = gameRooms.get(formattedCode);
 
       if (!room) {
-        return socket.emit("error", { message: "Code de partie invalide" });
+        return socket.emit("error", { message: "Code invalide" });
       }
 
       if (room.players.length >= room.maxPlayers) {
-        return socket.emit("error", { message: "La partie est complète" });
+        return socket.emit("error", { message: "Partie complète" });
       }
 
       joinRoom(socket, formattedCode, playerName, playerPhoto);
+      console.log(`👥 Joueur rejoint: ${formattedCode}`);
     } catch (error) {
-      socket.emit("error", { message: "Erreur de connexion à la partie" });
+      socket.emit("error", { message: "Erreur de connexion" });
     }
   });
 
@@ -103,12 +116,13 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("disconnect", () => {
-    console.log(`❌ Déconnexion: ${socket.id}`);
+  socket.on("disconnect", (reason) => {
+    console.log(`❌ Déconnexion (${socket.id}): ${reason}`);
     gameRooms.forEach((room, code) => {
       room.players = room.players.filter((p) => p.id !== socket.id);
       if (room.players.length === 0) {
         gameRooms.delete(code);
+        console.log(`♻️ Partie nettoyée: ${code}`);
       } else {
         io.to(code).emit("gameUpdate", room);
       }
@@ -152,6 +166,7 @@ function startGame(room) {
 
   room.discardPile = [room.deck.pop()];
   io.to(room.code).emit("gameStart", room);
+  console.log(`🚀 Partie démarrée: ${room.code}`);
 }
 
 function checkGameStatus(room) {
@@ -160,10 +175,12 @@ function checkGameStatus(room) {
   if (gameOver) {
     room.status = "finished";
     io.to(room.code).emit("gameEnd", room);
+    console.log(`🏁 Partie terminée: ${room.code}`);
   }
 }
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Serveur Socket.io actif sur le port ${PORT}`);
+  console.log(`🚀 Serveur actif sur port ${PORT}`);
+  console.log(`🔗 Health check: http://0.0.0.0:${PORT}/health`);
 });

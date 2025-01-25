@@ -7,11 +7,16 @@ import GameOver from "./components/GameOver";
 const socket = io("wss://skyjo-8gey.onrender.com", {
   path: "/socket.io",
   transports: ["websocket"],
-  autoConnect: false,
   secure: true,
+  autoConnect: false,
   reconnection: true,
   reconnectionAttempts: 5,
   reconnectionDelay: 3000,
+  pingInterval: 25000,
+  pingTimeout: 60000,
+  auth: {
+    token: "skyjo-v1",
+  },
 });
 
 export default function App() {
@@ -28,36 +33,63 @@ export default function App() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const handleConnect = () => console.log("Connecté au serveur");
-    const handleDisconnect = () => socket.connect();
+    // Forçage HTTPS
+    if (window.location.protocol === "http:") {
+      window.location.href = window.location.href.replace("http:", "https:");
+    }
+
+    const handleConnect = () => {
+      console.log("✅ Connecté au serveur");
+      setError("");
+    };
+
+    const handleDisconnect = () => {
+      console.log("❌ Déconnecté");
+      socket.connect();
+    };
+
+    const connectWithRetry = () => {
+      if (!socket.connected) {
+        socket.connect();
+        setTimeout(() => {
+          if (!socket.connected) {
+            console.log("🔄 Nouvelle tentative...");
+            connectWithRetry();
+          }
+        }, 5000);
+      }
+    };
 
     socket.on("connect", handleConnect);
     socket.on("disconnect", handleDisconnect);
     socket.on("connect_error", (err) => {
-      setError(`Erreur de connexion: ${err.message}`);
-      setTimeout(() => setError(""), 5000);
+      setError(`Connexion échouée: ${err.message}`);
+      setTimeout(connectWithRetry, 3000);
     });
 
     const handleRoomUpdate = (room) => {
       setRoomState((prev) => ({
         ...prev,
         ...room,
-        players: room.players || prev.players,
-        code: room.code || prev.code,
+        players:
+          room.players?.map((p) => ({
+            ...p,
+            isYou: p.id === socket.id,
+          })) || prev.players,
       }));
     };
 
     socket.on("roomUpdate", handleRoomUpdate);
-    socket.on("gameStart", (room) =>
-      setRoomState((prev) => ({ ...prev, ...room }))
-    );
-    socket.on("gameEnd", (room) =>
-      setRoomState((prev) => ({ ...prev, ...room }))
-    );
+    socket.on("gameStart", (room) => {
+      setRoomState((prev) => ({ ...prev, ...room }));
+      console.log("🎮 Début de partie !");
+    });
+    socket.on("gameEnd", (room) => {
+      setRoomState((prev) => ({ ...prev, ...room }));
+      console.log("🏁 Fin de partie");
+    });
 
-    if (!socket.connected) {
-      socket.connect();
-    }
+    connectWithRetry();
 
     return () => {
       socket.off("connect");
@@ -71,30 +103,31 @@ export default function App() {
   }, []);
 
   const handleJoinRoom = (playerName, playerPhoto, code, maxPlayers) => {
-    if (!playerName.trim()) {
-      return setError("Veuillez entrer un nom valide");
+    if (!playerName?.trim()) {
+      return setError("Nom requis");
     }
 
-    setPlayer({ name: playerName, photo: playerPhoto });
-
-    if (socket.disconnected) {
-      socket.connect();
-      setTimeout(
-        () => handleJoinRoom(playerName, playerPhoto, code, maxPlayers),
-        500
-      );
-      return;
-    }
+    setPlayer({
+      name: playerName.trim(),
+      photo: playerPhoto || "👤",
+    });
 
     const action = code ? "joinRoom" : "createRoom";
-    socket.emit(action, {
-      ...(code && { roomCode: code.toUpperCase() }),
+    const payload = {
       playerName: playerName.trim(),
       playerPhoto,
+      ...(code && { roomCode: code.toUpperCase() }),
       ...(!code && {
         maxPlayers: Math.min(Math.max(Number(maxPlayers), 2), 4),
       }),
-    });
+    };
+
+    if (socket.connected) {
+      socket.emit(action, payload);
+    } else {
+      socket.connect();
+      socket.once("connect", () => socket.emit(action, payload));
+    }
   };
 
   const handleGameAction = (action, data = {}) => {
