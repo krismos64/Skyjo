@@ -4,6 +4,7 @@ import { Server } from "socket.io";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import cors from "cors";
+import { createDeck, shuffleDeck, calculateScore } from "./gameLogic.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -40,14 +41,14 @@ io.on("connection", (socket) => {
 
   socket.on("joinGame", ({ gameId, playerName, playerPhoto, playerCount }) => {
     let game = games.get(gameId);
-  
+
     if (!game) {
       // Validation du nombre de joueurs
       const maxPlayers = Math.min(Math.max(Number(playerCount), 2), 4); // Forcer entre 2 et 4
       game = createGame(gameId, maxPlayers);
       games.set(gameId, game);
     }
-  
+
     if (game.players.length >= game.maxPlayers) {
       socket.emit("error", { message: "La partie est complète" });
       return;
@@ -65,104 +66,103 @@ io.on("connection", (socket) => {
     players.set(socket.id, gameId);
     socket.join(gameId);
 
-  // Démarrage quand le nombre exact est atteint
-  if (game.players.length === game.maxPlayers) {
-    startGame(game);
-  }
+    // Démarrage quand le nombre exact est atteint
+    if (game.players.length === game.maxPlayers) {
+      startGame(game);
+    }
+  });
+
+  io.to(gameId).emit("gameUpdate", game);
 });
 
+socket.on("revealCard", ({ gameId, cardIndex }) => {
+  const game = games.get(gameId);
+  if (!game || game.status !== "playing") return;
+
+  const playerIndex = game.players.findIndex((p) => p.id === socket.id);
+  if (playerIndex === -1 || playerIndex !== game.currentTurn) return;
+
+  const player = game.players[playerIndex];
+  const card = player.grid[cardIndex];
+
+  if (!card || card.revealed) return;
+
+  // Révéler la carte
+  card.revealed = true;
+  player.score = calculateScore(player.grid);
+
+  // Passer au joueur suivant
+  game.currentTurn = (game.currentTurn + 1) % game.players.length;
+
+  // Vérifier si la partie est terminée
+  if (isGameOver(game)) {
+    game.status = "finished";
+    io.to(gameId).emit("gameEnded", game);
+  } else {
     io.to(gameId).emit("gameUpdate", game);
-  });
+  }
+});
+socket.on("replaceCard", ({ gameId, cardIndex }) => {
+  const game = games.get(gameId);
+  const player = game.players.find((p) => p.id === socket.id);
 
-  socket.on("revealCard", ({ gameId, cardIndex }) => {
+  // Remplacer la carte dans la grille
+  player.grid[cardIndex] = {
+    value: player.drawnCard,
+    revealed: true,
+  };
+
+  // Passer au joueur suivant
+  game.currentTurn = (game.currentTurn + 1) % game.players.length;
+  io.to(gameId).emit("gameUpdate", game);
+});
+
+socket.on("drawCard", ({ gameId }) => {
+  const game = games.get(gameId);
+  if (!game || game.status !== "playing") return;
+
+  const playerIndex = game.players.findIndex((p) => p.id === socket.id);
+  if (playerIndex === -1 || playerIndex !== game.currentTurn) return;
+
+  // Piocher une carte de la défausse
+  const drawnCard = game.discardPile.pop();
+
+  // Ajouter une nouvelle carte à la défausse
+  if (game.deck.length > 0) {
+    game.discardPile.push(game.deck.pop());
+  }
+
+  // Mettre à jour le jeu du joueur
+  const player = game.players[playerIndex];
+  player.drawnCard = drawnCard;
+
+  // Passer au joueur suivant
+  game.currentTurn = (game.currentTurn + 1) % game.players.length;
+
+  io.to(gameId).emit("gameUpdate", game);
+});
+
+socket.on("disconnect", () => {
+  const gameId = players.get(socket.id);
+  if (gameId) {
     const game = games.get(gameId);
-    if (!game || game.status !== "playing") return;
-
-    const playerIndex = game.players.findIndex((p) => p.id === socket.id);
-    if (playerIndex === -1 || playerIndex !== game.currentTurn) return;
-
-    const player = game.players[playerIndex];
-    const card = player.grid[cardIndex];
-
-    if (!card || card.revealed) return;
-
-    // Révéler la carte
-    card.revealed = true;
-    player.score = calculateScore(player.grid);
-
-    // Passer au joueur suivant
-    game.currentTurn = (game.currentTurn + 1) % game.players.length;
-
-    // Vérifier si la partie est terminée
-    if (isGameOver(game)) {
-      game.status = "finished";
-      io.to(gameId).emit("gameEnded", game);
-    } else {
-      io.to(gameId).emit("gameUpdate", game);
-    }
-  });
-  socket.on("replaceCard", ({ gameId, cardIndex }) => {
-    const game = games.get(gameId);
-    const player = game.players.find((p) => p.id === socket.id);
-
-    // Remplacer la carte dans la grille
-    player.grid[cardIndex] = {
-      value: player.drawnCard,
-      revealed: true,
-    };
-
-    // Passer au joueur suivant
-    game.currentTurn = (game.currentTurn + 1) % game.players.length;
-    io.to(gameId).emit("gameUpdate", game);
-  });
-
-  socket.on("drawCard", ({ gameId }) => {
-    const game = games.get(gameId);
-    if (!game || game.status !== "playing") return;
-
-    const playerIndex = game.players.findIndex((p) => p.id === socket.id);
-    if (playerIndex === -1 || playerIndex !== game.currentTurn) return;
-
-    // Piocher une carte de la défausse
-    const drawnCard = game.discardPile.pop();
-
-    // Ajouter une nouvelle carte à la défausse
-    if (game.deck.length > 0) {
-      game.discardPile.push(game.deck.pop());
-    }
-
-    // Mettre à jour le jeu du joueur
-    const player = game.players[playerIndex];
-    player.drawnCard = drawnCard;
-
-    // Passer au joueur suivant
-    game.currentTurn = (game.currentTurn + 1) % game.players.length;
-
-    io.to(gameId).emit("gameUpdate", game);
-  });
-
-  socket.on("disconnect", () => {
-    const gameId = players.get(socket.id);
-    if (gameId) {
-      const game = games.get(gameId);
-      if (game) {
-        game.players = game.players.filter((p) => p.id !== socket.id);
-        if (game.players.length === 0) {
-          games.delete(gameId);
-        } else {
-          // Si le joueur qui se déconnecte était en train de jouer
-          if (
-            game.status === "playing" &&
-            game.players[game.currentTurn].id === socket.id
-          ) {
-            game.currentTurn = game.currentTurn % game.players.length;
-          }
-          io.to(gameId).emit("gameUpdate", game);
+    if (game) {
+      game.players = game.players.filter((p) => p.id !== socket.id);
+      if (game.players.length === 0) {
+        games.delete(gameId);
+      } else {
+        // Si le joueur qui se déconnecte était en train de jouer
+        if (
+          game.status === "playing" &&
+          game.players[game.currentTurn].id === socket.id
+        ) {
+          game.currentTurn = game.currentTurn % game.players.length;
         }
+        io.to(gameId).emit("gameUpdate", game);
       }
-      players.delete(socket.id);
     }
-  });
+    players.delete(socket.id);
+  }
 });
 
 function calculateScore(grid) {
@@ -229,11 +229,13 @@ function shuffle(array) {
 }
 
 function startGame(game) {
+  game.deck = shuffleDeck(createDeck());
   game.status = "playing";
-  game.currentTurn = 0;
+  game.currentTurn = Math.floor(Math.random() * game.players.length);
+
   game.players.forEach((player) => {
-    player.grid = game.deck.splice(0, 12).map((value) => ({
-      value,
+    player.grid = game.deck.splice(0, 12).map((card) => ({
+      ...card,
       revealed: false,
     }));
   });
