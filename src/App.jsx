@@ -4,7 +4,7 @@ import GameLobby from "./components/GameLobby";
 import GameBoard from "./components/GameBoard";
 import GameOver from "./components/GameOver";
 
-const socket = io("https://skyjo-kris.netlify.app/", {
+const socket = io("https://skyjo-8gey.onrender.com", {
   path: "/socket.io",
   transports: ["websocket"],
   autoConnect: false,
