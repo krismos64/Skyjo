@@ -25,14 +25,12 @@ const io = new Server(server, {
 
 const gameRooms = new Map();
 
-// Générer un code de partie unique
 const generateRoomCode = () => {
   const characters = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let code = "";
-  for (let i = 0; i < 6; i++) {
-    code += characters[Math.floor(Math.random() * characters.length)];
-  }
-  return code;
+  return Array.from(
+    { length: 6 },
+    () => characters[Math.floor(Math.random() * characters.length)]
+  ).join("");
 };
 
 io.on("connection", (socket) => {
@@ -51,16 +49,11 @@ io.on("connection", (socket) => {
     };
 
     gameRooms.set(roomCode, newRoom);
-
-    // Envoyer immédiatement le code au créateur
-    socket.emit("roomCreated", roomCode);
-
-    // Ajouter le joueur à la room
-    joinRoom(socket, roomCode, playerName, playerPhoto);
+    joinRoom(socket, roomCode, playerName, playerPhoto); // Créateur ajouté ici
   });
 
   socket.on("joinRoom", ({ roomCode, playerName, playerPhoto }) => {
-    const formattedCode = roomCode.toUpperCase();
+    const formattedCode = roomCode.toUpperCase().trim();
     const room = gameRooms.get(formattedCode);
 
     if (!room) {
@@ -88,8 +81,6 @@ io.on("connection", (socket) => {
 
     card.revealed = true;
     player.score = calculateScore(player.grid);
-
-    // Passer au joueur suivant
     room.currentTurn = (room.currentTurn + 1) % room.players.length;
 
     checkGameStatus(room);
@@ -99,21 +90,16 @@ io.on("connection", (socket) => {
   socket.on("disconnect", () => {
     gameRooms.forEach((room, code) => {
       room.players = room.players.filter((p) => p.id !== socket.id);
-
-      if (room.players.length === 0) {
-        gameRooms.delete(code);
-      } else {
-        if (room.status === "playing") {
-          room.currentTurn %= room.players.length;
-        }
-        io.to(code).emit("gameUpdate", room);
-      }
+      if (room.players.length === 0) gameRooms.delete(code);
+      else io.to(code).emit("gameUpdate", room);
     });
   });
 });
 
 function joinRoom(socket, roomCode, playerName, playerPhoto) {
   const room = gameRooms.get(roomCode);
+  if (!room) return;
+
   const player = {
     id: socket.id,
     name: playerName,
@@ -125,15 +111,11 @@ function joinRoom(socket, roomCode, playerName, playerPhoto) {
 
   room.players.push(player);
   socket.join(roomCode);
-
-  // Notifier tout le monde de la mise à jour
   io.to(roomCode).emit("roomUpdate", room);
 
-  // Démarrer la partie si le nombre est atteint
   if (room.players.length === room.maxPlayers) {
-    startGame(room);
+    setTimeout(() => startGame(room), 500);
   }
-  io.to(roomCode).emit("roomUpdate", room);
 }
 
 function startGame(room) {
@@ -141,7 +123,6 @@ function startGame(room) {
   room.status = "playing";
   room.currentTurn = Math.floor(Math.random() * room.players.length);
 
-  // Distribuer les cartes
   room.players.forEach((player) => {
     player.grid = room.deck.splice(0, 12).map((card) => ({
       ...card,
@@ -157,7 +138,6 @@ function checkGameStatus(room) {
   const gameOver = room.players.some((player) =>
     player.grid.every((card) => card.revealed)
   );
-
   if (gameOver) {
     room.status = "finished";
     io.to(room.code).emit("gameEnd", room);
@@ -166,5 +146,5 @@ function checkGameStatus(room) {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`Serveur démarré sur le port ${PORT}`);
+  console.log(`✅ Serveur démarré sur http://localhost:${PORT}`);
 });

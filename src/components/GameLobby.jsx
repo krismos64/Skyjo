@@ -5,27 +5,30 @@ import { io } from "socket.io-client";
 const socket = io({
   path: "/socket.io",
   transports: ["websocket"],
+  autoConnect: true,
 });
 
-export default function GameLobby({ onGameStart }) {
+export default function GameLobby({ onJoin, currentCode, error, roomState }) {
   const [playerName, setPlayerName] = useState("");
   const [playerPhoto, setPlayerPhoto] = useState("");
-  const [roomCode, setRoomCode] = useState("");
+  const [roomCode, setRoomCode] = useState(currentCode || "");
   const [isCreating, setIsCreating] = useState(true);
   const [maxPlayers, setMaxPlayers] = useState(2);
-  const [error, setError] = useState("");
-  const [createdCode, setCreatedCode] = useState("");
 
   useEffect(() => {
-    socket.on("roomCreated", (newCode) => {
-      setCreatedCode(newCode);
+    const handleCreatedRoom = (newCode) => {
       setRoomCode(newCode);
+      onJoin(""); // Réinitialise les erreurs
+    };
+
+    socket.on("roomCreated", handleCreatedRoom);
+    socket.on("error", (err) => {
+      onJoin(err.message);
+      setTimeout(() => onJoin(""), 5000);
     });
 
-    socket.on("error", (err) => {
-      setError(err.message);
-      setTimeout(() => setError(""), 5000);
-    });
+    // Reconnexion automatique
+    if (!socket.connected) socket.connect();
 
     return () => {
       socket.off("roomCreated");
@@ -35,22 +38,31 @@ export default function GameLobby({ onGameStart }) {
 
   const handlePhotoUpload = (e) => {
     const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => setPlayerPhoto(reader.result);
-      reader.readAsDataURL(file);
-    }
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onloadend = () => setPlayerPhoto(reader.result);
+    reader.readAsDataURL(file);
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    setError("");
+    onJoin(""); // Reset des erreurs
 
+    // Validation
     if (!playerName.trim()) {
-      setError("Veuillez entrer un nom de joueur");
+      onJoin("Veuillez entrer un nom de joueur");
       return;
     }
 
+    // Gestion de la connexion
+    if (!socket.connected) {
+      socket.connect();
+      setTimeout(() => handleSubmit(e), 300);
+      return;
+    }
+
+    // Émission des événements
     if (isCreating) {
       socket.emit("createRoom", {
         playerName: playerName.trim(),
@@ -58,8 +70,8 @@ export default function GameLobby({ onGameStart }) {
         maxPlayers,
       });
     } else {
-      if (!roomCode || roomCode.length !== 6) {
-        setError("Code de partie invalide (6 caractères requis)");
+      if (!roomCode.match(/^[A-Z0-9]{6}$/)) {
+        onJoin("Code invalide (6 caractères alphanumériques)");
         return;
       }
       socket.emit("joinRoom", {
@@ -163,7 +175,7 @@ export default function GameLobby({ onGameStart }) {
                 type="text"
                 value={roomCode}
                 onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
-                className="w-full px-4 py-3 bg-white/10 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-400 uppercase"
+                className="w-full px-4 py-3 bg-white/10 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-400 uppercase tracking-widest"
                 placeholder="ABCDEF"
                 maxLength={6}
               />
@@ -219,7 +231,7 @@ export default function GameLobby({ onGameStart }) {
               {roomCode}
             </div>
             <p className="text-sm mt-4 text-white/60">
-              En attente de {roomState?.maxPlayers - 1} joueur(s)...
+              En attente de {(roomState?.maxPlayers || 2) - 1} joueur(s)...
             </p>
           </motion.div>
         )}
