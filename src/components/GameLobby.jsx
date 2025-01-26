@@ -14,6 +14,7 @@ export default function GameLobby({ onJoin, currentCode, error, roomState }) {
   const [roomCode, setRoomCode] = useState(currentCode || "");
   const [isCreating, setIsCreating] = useState(true);
   const [maxPlayers, setMaxPlayers] = useState(2);
+  const [isNameValid, setIsNameValid] = useState(false); // Nouvel état pour la validation
 
   useEffect(() => {
     const handleCreatedRoom = (newCode) => {
@@ -45,24 +46,33 @@ export default function GameLobby({ onJoin, currentCode, error, roomState }) {
     reader.readAsDataURL(file);
   };
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    onJoin(""); // Reset des erreurs
-
-    // Validation
+  // Fonction pour valider le nom
+  const validateName = () => {
     const trimmedName = playerName?.trim();
     if (!trimmedName || trimmedName.length < 2) {
-      return onJoin("Le nom doit contenir au moins 2 caractères");
+      onJoin("Le nom doit contenir au moins 2 caractères");
+      setIsNameValid(false);
+    } else {
+      onJoin(""); // Réinitialise les erreurs
+      setIsNameValid(true);
+    }
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+
+    // Vérifie si le nom est valide avant de soumettre
+    if (!isNameValid) {
+      return onJoin("Veuillez valider votre nom avant de continuer");
     }
 
-    // Gestion de la connexion
     if (!socket.connected) {
       socket.connect();
       setTimeout(() => handleSubmit(e), 300);
       return;
     }
 
-    // Émission des événements
+    const trimmedName = playerName.trim();
     if (isCreating) {
       socket.emit("createRoom", {
         playerName: trimmedName,
@@ -130,15 +140,27 @@ export default function GameLobby({ onJoin, currentCode, error, roomState }) {
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
             <label className="block text-white/80 mb-2">Votre pseudo</label>
-            <input
-              type="text"
-              value={playerName}
-              onChange={(e) => setPlayerName(e.target.value.trimStart())}
-              className="w-full px-4 py-3 bg-white/10 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-400"
-              placeholder="Ex: SkyjoMaster"
-              maxLength={20}
-              required
-            />
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={playerName}
+                onChange={(e) => {
+                  setPlayerName(e.target.value.trimStart());
+                  setIsNameValid(false); // Réinitialise la validation si le nom change
+                }}
+                className="w-full px-4 py-3 bg-white/10 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                placeholder="Ex: SkyjoMaster"
+                maxLength={20}
+                required
+              />
+              <button
+                type="button"
+                onClick={validateName}
+                className="px-4 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-all"
+              >
+                Valider
+              </button>
+            </div>
           </div>
 
           {isCreating && (
