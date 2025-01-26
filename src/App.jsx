@@ -103,18 +103,20 @@ export default function App() {
   }, []);
 
   const handleJoinRoom = (playerName, playerPhoto, code, maxPlayers) => {
-    if (!playerName?.trim()) {
-      return setError("Nom requis");
+    const trimmedName = playerName?.trim();
+
+    if (!trimmedName || trimmedName.length < 2) {
+      return setError("Le nom doit contenir au moins 2 caractères");
     }
 
     setPlayer({
-      name: playerName.trim(),
+      name: trimmedName,
       photo: playerPhoto || "👤",
     });
 
     const action = code ? "joinRoom" : "createRoom";
     const payload = {
-      playerName: playerName.trim(),
+      playerName: trimmedName,
       playerPhoto,
       ...(code && { roomCode: code.toUpperCase() }),
       ...(!code && {

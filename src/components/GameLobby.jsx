@@ -50,9 +50,9 @@ export default function GameLobby({ onJoin, currentCode, error, roomState }) {
     onJoin(""); // Reset des erreurs
 
     // Validation
-    if (!playerName.trim()) {
-      onJoin("Veuillez entrer un nom de joueur");
-      return;
+    const trimmedName = playerName?.trim();
+    if (!trimmedName || trimmedName.length < 2) {
+      return onJoin("Le nom doit contenir au moins 2 caractères");
     }
 
     // Gestion de la connexion
@@ -65,18 +65,17 @@ export default function GameLobby({ onJoin, currentCode, error, roomState }) {
     // Émission des événements
     if (isCreating) {
       socket.emit("createRoom", {
-        playerName: playerName.trim(),
+        playerName: trimmedName,
         playerPhoto,
         maxPlayers,
       });
     } else {
-      if (!roomCode.match(/^[A-Z0-9]{6}$/)) {
-        onJoin("Code invalide (6 caractères alphanumériques)");
-        return;
+      if (!roomCode || roomCode.length !== 6) {
+        return onJoin("Code de partie invalide (6 caractères requis)");
       }
       socket.emit("joinRoom", {
         roomCode: roomCode.toUpperCase(),
-        playerName: playerName.trim(),
+        playerName: trimmedName,
         playerPhoto,
       });
     }
@@ -135,8 +134,8 @@ export default function GameLobby({ onJoin, currentCode, error, roomState }) {
               type="text"
               value={playerName}
               onChange={(e) => setPlayerName(e.target.value.trimStart())}
-              className="..."
-              placeholder="Chris"
+              className="w-full px-4 py-3 bg-white/10 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-400"
+              placeholder="Ex: SkyjoMaster"
               maxLength={20}
               required
             />
