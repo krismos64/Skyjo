@@ -14,12 +14,11 @@ export default function GameLobby({ onJoin, currentCode, error, roomState }) {
   const [roomCode, setRoomCode] = useState(currentCode || "");
   const [isCreating, setIsCreating] = useState(true);
   const [maxPlayers, setMaxPlayers] = useState(2);
-  const [isNameValid, setIsNameValid] = useState(false); // Nouvel état pour la validation
 
   useEffect(() => {
     const handleCreatedRoom = (newCode) => {
       setRoomCode(newCode);
-      onJoin(""); // Réinitialise les erreurs
+      onJoin("");
     };
 
     socket.on("roomCreated", handleCreatedRoom);
@@ -28,7 +27,6 @@ export default function GameLobby({ onJoin, currentCode, error, roomState }) {
       setTimeout(() => onJoin(""), 5000);
     });
 
-    // Reconnexion automatique
     if (!socket.connected) socket.connect();
 
     return () => {
@@ -46,25 +44,8 @@ export default function GameLobby({ onJoin, currentCode, error, roomState }) {
     reader.readAsDataURL(file);
   };
 
-  // Fonction pour valider le nom
-  const validateName = () => {
-    const trimmedName = playerName?.trim();
-    if (!trimmedName || trimmedName.length < 2) {
-      onJoin("Le nom doit contenir au moins 2 caractères");
-      setIsNameValid(false);
-    } else {
-      onJoin(""); // Réinitialise les erreurs
-      setIsNameValid(true);
-    }
-  };
-
   const handleSubmit = (e) => {
     e.preventDefault();
-
-    // Vérifie si le nom est valide avant de soumettre
-    if (!isNameValid) {
-      return onJoin("Veuillez valider votre nom avant de continuer");
-    }
 
     if (!socket.connected) {
       socket.connect();
@@ -72,22 +53,19 @@ export default function GameLobby({ onJoin, currentCode, error, roomState }) {
       return;
     }
 
-    const trimmedName = playerName.trim();
-    if (isCreating) {
-      socket.emit("createRoom", {
-        playerName: trimmedName,
-        playerPhoto,
-        maxPlayers,
-      });
+    const action = isCreating ? "createRoom" : "joinRoom";
+    const payload = {
+      playerName: playerName.trim() || "Joueur", // Nom par défaut si vide
+      playerPhoto,
+      ...(!isCreating && { roomCode: roomCode.toUpperCase() }),
+      ...(isCreating && { maxPlayers }),
+    };
+
+    if (socket.connected) {
+      socket.emit(action, payload);
     } else {
-      if (!roomCode || roomCode.length !== 6) {
-        return onJoin("Code de partie invalide (6 caractères requis)");
-      }
-      socket.emit("joinRoom", {
-        roomCode: roomCode.toUpperCase(),
-        playerName: trimmedName,
-        playerPhoto,
-      });
+      socket.connect();
+      socket.once("connect", () => socket.emit(action, payload));
     }
   };
 
@@ -140,27 +118,14 @@ export default function GameLobby({ onJoin, currentCode, error, roomState }) {
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
             <label className="block text-white/80 mb-2">Votre pseudo</label>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={playerName}
-                onChange={(e) => {
-                  setPlayerName(e.target.value.trimStart());
-                  setIsNameValid(false); // Réinitialise la validation si le nom change
-                }}
-                className="w-full px-4 py-3 bg-white/10 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                placeholder="Ex: SkyjoMaster"
-                maxLength={20}
-                required
-              />
-              <button
-                type="button"
-                onClick={validateName}
-                className="px-4 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-all"
-              >
-                Valider
-              </button>
-            </div>
+            <input
+              type="text"
+              value={playerName}
+              onChange={(e) => setPlayerName(e.target.value)}
+              className="w-full px-4 py-3 bg-white/10 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-400"
+              placeholder="Ex: SkyjoMaster"
+              maxLength={20}
+            />
           </div>
 
           {isCreating && (
