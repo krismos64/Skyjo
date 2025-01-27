@@ -146,6 +146,7 @@ function joinRoom(socket, roomCode, playerName, playerPhoto) {
   room.players.push(player);
   socket.join(roomCode);
   io.to(roomCode).emit("roomUpdate", room);
+  socket.emit("roomCreated", roomCode);
 
   if (room.players.length === room.maxPlayers) {
     setTimeout(() => startGame(room), 500);

@@ -16,21 +16,19 @@ export default function GameLobby({ onJoin, currentCode, error, roomState }) {
   const [maxPlayers, setMaxPlayers] = useState(2);
 
   useEffect(() => {
-    const handleCreatedRoom = (newCode) => {
-      setRoomCode(newCode);
+    const handleRoomUpdate = (room) => {
+      setRoomCode(room.code);
       onJoin("");
     };
 
-    socket.on("roomCreated", handleCreatedRoom);
+    socket.on("roomUpdate", handleRoomUpdate);
     socket.on("error", (err) => {
       onJoin(err.message);
       setTimeout(() => onJoin(""), 5000);
     });
 
-    if (!socket.connected) socket.connect();
-
     return () => {
-      socket.off("roomCreated");
+      socket.off("roomUpdate");
       socket.off("error");
     };
   }, []);
