@@ -1,9 +1,16 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="fr">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Skyjo Game</title>
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self' ws: wss: blob: data: gap:;
+               script-src 'self' 'unsafe-eval' https://cdn.socket.io;
+               style-src 'self' 'unsafe-inline';
+               object-src 'none';"
+    />
+    <title>Skyjo</title>
   </head>
   <body>
     <div id="root"></div>

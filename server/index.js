@@ -12,19 +12,17 @@ const __dirname = dirname(__filename);
 const app = express();
 const server = createServer(app);
 
-// Configuration CORS améliorée
+// Configuration CORS élargie
 app.use(
   cors({
-    origin: ["https://skyjo-kris.netlify.app", "http://localhost:5173"],
+    origin: "*",
     methods: ["GET", "POST"],
-    allowedHeaders: ["socket.io", "Content-Type"],
     credentials: true,
   })
 );
 
 app.use(express.static(join(__dirname, "../dist")));
 
-// Endpoint de vérification de santé
 app.get("/health", (req, res) => {
   res.status(200).json({
     status: "OK",
@@ -35,9 +33,8 @@ app.get("/health", (req, res) => {
 
 const io = new Server(server, {
   cors: {
-    origin: ["https://skyjo-kris.netlify.app", "http://localhost:5173"],
+    origin: "*",
     methods: ["GET", "POST"],
-    allowedHeaders: ["socket.io"],
     credentials: true,
   },
   connectionStateRecovery: {
@@ -74,6 +71,7 @@ io.on("connection", (socket) => {
       gameRooms.set(roomCode, newRoom);
       joinRoom(socket, roomCode, playerName, playerPhoto);
       console.log(`🎮 Nouvelle partie créée: ${roomCode}`);
+      socket.emit("roomCreated", roomCode); // Nouvel événement
     } catch (error) {
       socket.emit("error", { message: "Erreur de création de partie" });
     }
@@ -84,11 +82,15 @@ io.on("connection", (socket) => {
       const formattedCode = roomCode.toUpperCase().trim();
       const room = gameRooms.get(formattedCode);
 
+      console.log(`Tentative de rejoindre ${formattedCode}`);
+
       if (!room) {
+        console.log(`Room ${formattedCode} non trouvée`);
         return socket.emit("error", { message: "Code invalide" });
       }
 
       if (room.players.length >= room.maxPlayers) {
+        console.log(`Room ${formattedCode} pleine`);
         return socket.emit("error", { message: "Partie complète" });
       }
 
@@ -136,7 +138,7 @@ function joinRoom(socket, roomCode, playerName, playerPhoto) {
 
   const player = {
     id: socket.id,
-    name: playerName.trim(),
+    name: playerName?.trim() || "Joueur",
     photo: playerPhoto,
     grid: [],
     score: 0,
@@ -145,8 +147,11 @@ function joinRoom(socket, roomCode, playerName, playerPhoto) {
 
   room.players.push(player);
   socket.join(roomCode);
-  io.to(roomCode).emit("roomUpdate", room);
-  socket.emit("roomCreated", roomCode);
+
+  socket.to(roomCode).emit("roomUpdate", room);
+  socket.emit("roomUpdate", room);
+
+  console.log(`✅ ${player.name} a rejoint ${roomCode}`);
 
   if (room.players.length === room.maxPlayers) {
     setTimeout(() => startGame(room), 500);

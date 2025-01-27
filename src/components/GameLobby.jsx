@@ -17,19 +17,26 @@ export default function GameLobby({ onJoin, currentCode, error, roomState }) {
 
   useEffect(() => {
     const handleRoomUpdate = (room) => {
+      console.log("Mise à jour de room:", room);
       setRoomCode(room.code);
       onJoin("");
     };
 
+    const handleConnectError = (err) => {
+      console.error("Erreur de connexion:", err);
+      onJoin(`Erreur: ${err.message}`);
+    };
+
     socket.on("roomUpdate", handleRoomUpdate);
-    socket.on("error", (err) => {
-      onJoin(err.message);
-      setTimeout(() => onJoin(""), 5000);
-    });
+    socket.on("exception", handleConnectError);
+    socket.on("connect_error", handleConnectError);
+
+    if (!socket.connected) socket.connect();
 
     return () => {
-      socket.off("roomUpdate");
-      socket.off("error");
+      socket.off("roomUpdate", handleRoomUpdate);
+      socket.off("exception", handleConnectError);
+      socket.off("connect_error", handleConnectError);
     };
   }, []);
 
@@ -45,25 +52,20 @@ export default function GameLobby({ onJoin, currentCode, error, roomState }) {
   const handleSubmit = (e) => {
     e.preventDefault();
 
-    if (!socket.connected) {
-      socket.connect();
-      setTimeout(() => handleSubmit(e), 300);
-      return;
-    }
-
-    const action = isCreating ? "createRoom" : "joinRoom";
     const payload = {
-      playerName: playerName.trim() || "Joueur", // Nom par défaut si vide
+      playerName: playerName.trim() || "Joueur",
       playerPhoto,
-      ...(!isCreating && { roomCode: roomCode.toUpperCase() }),
       ...(isCreating && { maxPlayers }),
+      ...(!isCreating && { roomCode: roomCode.toUpperCase() }),
     };
 
     if (socket.connected) {
-      socket.emit(action, payload);
+      socket.emit(isCreating ? "createRoom" : "joinRoom", payload);
     } else {
       socket.connect();
-      socket.once("connect", () => socket.emit(action, payload));
+      socket.once("connect", () => {
+        socket.emit(isCreating ? "createRoom" : "joinRoom", payload);
+      });
     }
   };
 

@@ -4,19 +4,15 @@ import GameLobby from "./components/GameLobby";
 import GameBoard from "./components/GameBoard";
 import GameOver from "./components/GameOver";
 
-const socket = io("wss://skyjo-8gey.onrender.com", {
+const socket = io({
   path: "/socket.io",
   transports: ["websocket"],
-  secure: true,
   autoConnect: false,
   reconnection: true,
   reconnectionAttempts: 5,
   reconnectionDelay: 3000,
   pingInterval: 25000,
   pingTimeout: 60000,
-  auth: {
-    token: "skyjo-v1",
-  },
 });
 
 export default function App() {
